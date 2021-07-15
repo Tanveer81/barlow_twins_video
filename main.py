@@ -20,6 +20,8 @@ from torch import nn, optim
 import torch
 import torchvision
 import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+from yvos_dataset import YvosDateset
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
 parser.add_argument('data', type=Path, metavar='DIR',
@@ -44,6 +46,8 @@ parser.add_argument('--print-freq', default=100, type=int, metavar='N',
                     help='print frequency')
 parser.add_argument('--checkpoint-dir', default='./checkpoint/', type=Path,
                     metavar='DIR', help='path to checkpoint directory')
+parser.add_argument('--yvos', default=True, type=bool, help='train yvos dataset')
+parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
 
 
 def main():
@@ -110,7 +114,12 @@ def main_worker(gpu, args):
     else:
         start_epoch = 0
 
-    dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
+    if args.yvos:
+        img_path = f'{args.yvos_root}/youtubeVOS/train/JPEGImages/'
+        pair_meta_path = f'{args.yvos_root}/youtubeVOS/train/'
+        dataset = YvosDateset(pair_meta_path, img_path, Transform())
+    else:
+        dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
     sampler = torch.utils.data.distributed.DistributedSampler(dataset)
     assert args.batch_size % args.world_size == 0
     per_device_batch_size = args.batch_size // args.world_size
@@ -122,7 +131,7 @@ def main_worker(gpu, args):
     scaler = torch.cuda.amp.GradScaler()
     for epoch in range(start_epoch, args.epochs):
         sampler.set_epoch(epoch)
-        for step, ((y1, y2), _) in enumerate(loader, start=epoch * len(loader)):
+        for step, (y1, y2) in enumerate(loader, start=epoch * len(loader)):
             y1 = y1.cuda(gpu, non_blocking=True)
             y2 = y2.cuda(gpu, non_blocking=True)
             adjust_learning_rate(args, optimizer, loader, step)
@@ -183,6 +192,9 @@ def off_diagonal(x):
     assert n == m
     return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
+def visualize(img, cmap='binary'):
+    plt.imshow(img, cmap=cmap)
+    plt.show(block=True)
 
 class BarlowTwins(nn.Module):
     def __init__(self, args):
@@ -289,7 +301,7 @@ class Solarization(object):
 class Transform:
     def __init__(self):
         self.transform = transforms.Compose([
-            transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
+            # transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
                 [transforms.ColorJitter(brightness=0.4, contrast=0.4,
@@ -304,7 +316,7 @@ class Transform:
                                  std=[0.229, 0.224, 0.225])
         ])
         self.transform_prime = transforms.Compose([
-            transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
+            # transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
                 [transforms.ColorJitter(brightness=0.4, contrast=0.4,
@@ -322,6 +334,11 @@ class Transform:
     def __call__(self, x):
         y1 = self.transform(x)
         y2 = self.transform_prime(x)
+        return y1, y2
+
+    def __call__(self, x1, x2):
+        y1 = self.transform(x1)
+        y2 = self.transform_prime(x2)
         return y1, y2
 
 
