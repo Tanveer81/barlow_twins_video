@@ -81,7 +81,7 @@ class YvosDateset(Dataset):
         self.transform = transform
         self.img_path = img_path
         start_time = time.time()
-        file = open(f'{pair_meta_path}barlow_twins_pairs.txt', 'r')
+        file = open(f'{pair_meta_path}barlow_twins_pairs_test.txt', 'r')
         self.pairs = []
         for line in file:
             frames = line.split(' ')

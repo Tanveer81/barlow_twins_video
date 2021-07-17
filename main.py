@@ -46,7 +46,7 @@ parser.add_argument('--print-freq', default=100, type=int, metavar='N',
                     help='print frequency')
 parser.add_argument('--checkpoint-dir', default='./checkpoint/', type=Path,
                     metavar='DIR', help='path to checkpoint directory')
-parser.add_argument('--yvos', default=True, type=bool, help='train yvos dataset')
+parser.add_argument('--yvos', default="False", type=str, help='train yvos dataset')
 parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
 
 
@@ -61,8 +61,8 @@ def main():
         # find a common host name on all nodes
         # assume scontrol returns hosts in the same order on all nodes
         cmd = 'scontrol show hostnames ' + os.getenv('SLURM_JOB_NODELIST')
-        stdout = subprocess.check_output(cmd.split())
-        host_name = stdout.decode().splitlines()[0]
+        # stdout = subprocess.check_output(cmd.split())
+        host_name = 'localhost'#stdout.decode().splitlines()[0]
         args.rank = int(os.getenv('SLURM_NODEID')) * args.ngpus_per_node
         args.world_size = int(os.getenv('SLURM_NNODES')) * args.ngpus_per_node
         args.dist_url = f'tcp://{host_name}:58472'
@@ -114,7 +114,7 @@ def main_worker(gpu, args):
     else:
         start_epoch = 0
 
-    if args.yvos:
+    if args.yvos == "True":
         img_path = f'{args.yvos_root}/youtubeVOS/train/JPEGImages/'
         pair_meta_path = f'{args.yvos_root}/youtubeVOS/train/'
         dataset = YvosDateset(pair_meta_path, img_path, Transform())
@@ -336,10 +336,10 @@ class Transform:
         y2 = self.transform_prime(x)
         return y1, y2
 
-    def __call__(self, x1, x2):
-        y1 = self.transform(x1)
-        y2 = self.transform_prime(x2)
-        return y1, y2
+    # def __call__(self, x1, x2):
+    #     y1 = self.transform(x1)
+    #     y2 = self.transform_prime(x2)
+    #     return y1, y2
 
 
 if __name__ == '__main__':
