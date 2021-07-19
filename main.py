@@ -22,6 +22,7 @@ import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 from yvos_dataset import YvosDateset
+import torchvision.models as models
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
 parser.add_argument('data', type=Path, metavar='DIR',
@@ -46,9 +47,10 @@ parser.add_argument('--print-freq', default=100, type=int, metavar='N',
                     help='print frequency')
 parser.add_argument('--checkpoint-dir', default='./checkpoint/', type=Path,
                     metavar='DIR', help='path to checkpoint directory')
-parser.add_argument('--yvos', default="False", type=str, help='train yvos dataset')
+parser.add_argument('--yvos', action='store_true', help='train yvos dataset')
+parser.add_argument('--crop', action='store_true', help='train yvos dataset')
 parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
-
+parser.add_argument('--imgnet_pretrained', action='store_true')
 
 def main():
     args = parser.parse_args()
@@ -89,8 +91,12 @@ def main_worker(gpu, args):
     torch.cuda.set_device(gpu)
     torch.backends.cudnn.benchmark = True
 
-    model = BarlowTwins(args).cuda(gpu)
+    # if pretrain and not resume from checkpoint
+    load_pretrained_model =  args.imgnet_pretrained and not (args.checkpoint_dir / 'checkpoint.pth').is_file()
+    model = BarlowTwins(args, load_pretrained_model).cuda(gpu)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+
     param_weights = []
     param_biases = []
     for param in model.parameters():
@@ -114,10 +120,11 @@ def main_worker(gpu, args):
     else:
         start_epoch = 0
 
-    if args.yvos == "True":
+    if args.yvos:
         img_path = f'{args.yvos_root}/youtubeVOS/train/JPEGImages/'
+        meta_path = f'{args.yvos_root}/youtubeVOS/train/train-train-meta-balanced.json'
         pair_meta_path = f'{args.yvos_root}/youtubeVOS/train/'
-        dataset = YvosDateset(pair_meta_path, img_path, Transform())
+        dataset = YvosDateset(pair_meta_path, img_path, Transform(), args.crop == "True", meta_path)
     else:
         dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
     sampler = torch.utils.data.distributed.DistributedSampler(dataset)
@@ -197,10 +204,10 @@ def visualize(img, cmap='binary'):
     plt.show(block=True)
 
 class BarlowTwins(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, load_pretrained_model):
         super().__init__()
         self.args = args
-        self.backbone = torchvision.models.resnet50(zero_init_residual=True)
+        self.backbone = torchvision.models.resnet50(pretrained=load_pretrained_model, zero_init_residual=True)
         self.backbone.fc = nn.Identity()
 
         # projector
@@ -331,15 +338,15 @@ class Transform:
                                  std=[0.229, 0.224, 0.225])
         ])
 
-    def __call__(self, x):
-        y1 = self.transform(x)
-        y2 = self.transform_prime(x)
-        return y1, y2
-
-    # def __call__(self, x1, x2):
-    #     y1 = self.transform(x1)
-    #     y2 = self.transform_prime(x2)
+    # def __call__(self, x):
+    #     y1 = self.transform(x)
+    #     y2 = self.transform_prime(x)
     #     return y1, y2
+
+    def __call__(self, x1, x2):
+        y1 = self.transform(x1)
+        y2 = self.transform_prime(x2)
+        return y1, y2
 
 
 if __name__ == '__main__':

@@ -76,8 +76,12 @@ def debug_barlow_twin_annotations(pair_meta_path, img_path):
 
 
 class YvosDateset(Dataset):
-    def __init__(self, pair_meta_path, img_path, transform):
+    def __init__(self, pair_meta_path, img_path, transform, crop=False, meta_path=None):
         super().__init__()
+        self.crop = crop
+        if self.crop:
+            f = open(meta_path, )
+            self.meta = json.load(f)
         self.transform = transform
         self.img_path = img_path
         start_time = time.time()
