@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import time
+import pickle as pkl
 
 from PIL import Image, ImageOps, ImageFilter
 from torch import nn, optim
@@ -51,6 +52,33 @@ parser.add_argument('--yvos', action='store_true', help='train yvos dataset')
 parser.add_argument('--crop', action='store_true', help='train yvos dataset')
 parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
 parser.add_argument('--imgnet_pretrained', action='store_true')
+parser.add_argument('--torchvision_to_d2', action='store_true')
+
+def torchvision_to_d2(ckp, args):
+    newmodel = {}
+    obj = ckp['model']
+    for k in list(obj.keys()):
+        old_k = k
+        if "layer" not in k:
+            # k = "stem." + k
+            k = k.replace('module.backbone', 'backbone.bottom_up.stem')
+        for t in [1, 2, 3, 4]:
+            k = k.replace("layer{}".format(t), "res{}".format(t + 1))
+            # k = k.replace('module.backbone', 'backbone.bottom_up')
+        for t in [1, 2, 3]:
+            k = k.replace("bn{}".format(t), "conv{}.norm".format(t))
+            # k = k.replace('module.backbone', 'backbone.bottom_up')
+        k = k.replace("downsample.0", "shortcut")
+        k = k.replace("downsample.1", "shortcut.norm")
+        k = k.replace('module.backbone', 'backbone.bottom_up')
+        print(old_k, "->", k)
+        newmodel[k] = obj.pop(old_k).detach().numpy()
+
+    res = {"model": newmodel, "__author__": "torchvision", "matching_heuristics": True}
+    with open(args.checkpoint_dir / 'checkpoint.pkl', "wb") as f:
+        pkl.dump(res, f)
+    if obj:
+        print("Unconverted keys:", obj.keys())
 
 def main():
     args = parser.parse_args()
@@ -91,8 +119,8 @@ def main_worker(gpu, args):
     torch.cuda.set_device(gpu)
     torch.backends.cudnn.benchmark = True
 
-    # if pretrain and not resume from checkpoint
-    load_pretrained_model =  args.imgnet_pretrained and not (args.checkpoint_dir / 'checkpoint.pth').is_file()
+    # if pretrain and not resume from checkpoint if exists
+    load_pretrained_model = args.imgnet_pretrained and not (args.checkpoint_dir / 'checkpoint.pth').is_file()
     model = BarlowTwins(args, load_pretrained_model).cuda(gpu)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
@@ -114,6 +142,11 @@ def main_worker(gpu, args):
     if (args.checkpoint_dir / 'checkpoint.pth').is_file():
         ckpt = torch.load(args.checkpoint_dir / 'checkpoint.pth',
                           map_location='cpu')
+
+        if args.torchvision_to_d2:
+            torchvision_to_d2(ckpt, args)
+            return
+
         start_epoch = ckpt['epoch']
         model.load_state_dict(ckpt['model'])
         optimizer.load_state_dict(ckpt['optimizer'])
@@ -338,16 +371,15 @@ class Transform:
                                  std=[0.229, 0.224, 0.225])
         ])
 
-    # def __call__(self, x):
-    #     y1 = self.transform(x)
-    #     y2 = self.transform_prime(x)
-    #     return y1, y2
-
-    def __call__(self, x1, x2):
-        y1 = self.transform(x1)
-        y2 = self.transform_prime(x2)
+    def __call__(self, x):
+        y1 = self.transform(x)
+        y2 = self.transform_prime(x)
         return y1, y2
 
+    # def __call__(self, x1, x2):
+    #     y1 = self.transform(x1)
+    #     y2 = self.transform_prime(x2)
+    #     return y1, y2
 
 if __name__ == '__main__':
     main()
