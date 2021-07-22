@@ -53,6 +53,8 @@ parser.add_argument('--crop', action='store_true', help='train yvos dataset')
 parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
 parser.add_argument('--imgnet_pretrained', action='store_true')
 parser.add_argument('--torchvision_to_d2', action='store_true')
+parser.add_argument("--cuda_visible_device", nargs="*", type=int, default=None,
+                    help="list of cuda visible devices")
 
 def torchvision_to_d2(ckp, args):
     newmodel = {}
@@ -82,6 +84,10 @@ def torchvision_to_d2(ckp, args):
 
 def main():
     args = parser.parse_args()
+
+    if args.cuda_visible_device is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, args.cuda_visible_device))
+
     args.ngpus_per_node = torch.cuda.device_count()
     if 'SLURM_JOB_ID' in os.environ:
         # single-node and multi-node distributed training on SLURM cluster
@@ -341,7 +347,7 @@ class Solarization(object):
 class Transform:
     def __init__(self):
         self.transform = transforms.Compose([
-            # transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
+            transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
                 [transforms.ColorJitter(brightness=0.4, contrast=0.4,
@@ -356,7 +362,7 @@ class Transform:
                                  std=[0.229, 0.224, 0.225])
         ])
         self.transform_prime = transforms.Compose([
-            # transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
+            transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
                 [transforms.ColorJitter(brightness=0.4, contrast=0.4,
@@ -371,15 +377,15 @@ class Transform:
                                  std=[0.229, 0.224, 0.225])
         ])
 
-    def __call__(self, x):
-        y1 = self.transform(x)
-        y2 = self.transform_prime(x)
-        return y1, y2
-
-    # def __call__(self, x1, x2):
-    #     y1 = self.transform(x1)
-    #     y2 = self.transform_prime(x2)
+    # def __call__(self, x):
+    #     y1 = self.transform(x)
+    #     y2 = self.transform_prime(x)
     #     return y1, y2
+
+    def __call__(self, x1, x2):
+        y1 = self.transform(x1)
+        y2 = self.transform_prime(x2)
+        return y1, y2
 
 if __name__ == '__main__':
     main()

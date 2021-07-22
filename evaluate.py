@@ -18,6 +18,7 @@ from torch import nn, optim
 from torchvision import models, datasets, transforms
 import torch
 import torchvision
+from main import *
 
 parser = argparse.ArgumentParser(description='Evaluate resnet50 features on ImageNet')
 parser.add_argument('data', type=Path, metavar='DIR',
