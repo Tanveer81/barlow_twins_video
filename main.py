@@ -347,7 +347,7 @@ class Solarization(object):
 class Transform:
     def __init__(self, crop):
         self.transform = transforms.Compose([
-            transforms.Resize(224, interpolation=Image.BICUBIC) if crop else transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
+            transforms.Resize((224, 224), interpolation=Image.BICUBIC) if crop else transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
                 [transforms.ColorJitter(brightness=0.4, contrast=0.4,
@@ -362,7 +362,7 @@ class Transform:
                                  std=[0.229, 0.224, 0.225])
         ])
         self.transform_prime = transforms.Compose([
-            transforms.Resize(224, interpolation=Image.BICUBIC) if crop else transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
+            transforms.Resize((224, 224), interpolation=Image.BICUBIC) if crop else transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
                 [transforms.ColorJitter(brightness=0.4, contrast=0.4,

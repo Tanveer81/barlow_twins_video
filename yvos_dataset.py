@@ -93,30 +93,40 @@ def save_bounding_boxes_for_barlow_twins(path):
     with open(f'{path}/barlow_twins_bboxes.json', 'w') as outfile:
         json.dump(bboxes_frame, outfile)
 
+def is_empty(bboxes_data, pair):
+    # Returns true if a pir of frame does not have  bounding box for common objects
+    pair = pair.split(' ')
+    box1 = bboxes_data[pair[0].replace('/', '_').split('.')[0]]
+    box2 = bboxes_data[pair[1].rstrip().replace('/', '_').split('.')[0]]
+    common_bbox_list = list(set(list(box1.keys())) & set(list(box2.keys())))
+    return not common_bbox_list
 
 def refine_barlow_pairs_boxes(path):
     # remove frame pair with empty bboxes
     start_time = time.time()
     with open(f'{path}barlow_twins_bboxes.json') as json_file:
-        detectron_data = json.load(json_file)
-    empty_frames = []
-    for key, value in detectron_data.items():
-        if not value:
-            empty_frames.append(key.replace('_', '/'))
+        bboxes_data = json.load(json_file)
+    # empty_frames = []
+    # for key, value in bboxes_data.items():
+    #     if not value:
+    #         empty_frames.append(key.replace('_', '/'))
 
     file = open(f'{path}barlow_twins_pairs.txt', 'r')
     pairs = [line for line in file]
-    length = len(pairs)
-    for i, pair in enumerate(pairs):
-        for empty_frame in empty_frames:
-            if empty_frame in pair:
-                pairs.remove(pair)
-                break
-        print(f'{i + 1}/{length} : {(time.time() - start_time)} seconds')
+    # length = len(pairs)
+    # for i, pair in enumerate(pairs):
+    #     for empty_frame in empty_frames:
+    #         if empty_frame not in pair:
+    #             pairs.remove(pair)
+    #             break
+    #     print(f'{i + 1}/{length} : {(time.time() - start_time)} seconds')
+
+    refined_pairs = [pair for pair in pairs if not is_empty(bboxes_data, pair)]
+
     print(f'Total Time : {(time.time() - start_time)} seconds')
     print(f'Saving pairs as {path}barlow_twins_pairs_refined.txt')
     with open(f'{path}barlow_twins_pairs_refined.txt', 'w') as fp:
-        for row in pairs:
+        for row in refined_pairs:
             fp.write(str(row))
 
 
@@ -148,8 +158,8 @@ class YvosDateset(Dataset):
         image2 = Image.open(os.path.join(self.img_path, pair[1].rstrip()))
         image1 = image1.convert('RGB')
         image2 = image2.convert('RGB')
-        visualize(image1)
-        visualize(image2)
+        # visualize(image1)
+        # visualize(image2)
         if self.crop:
             box1 = self.bboxes_data[pair[0].replace('/', '_').split('.')[0]]
             box2 = self.bboxes_data[pair[1].rstrip().replace('/', '_').split('.')[0]]
@@ -159,8 +169,8 @@ class YvosDateset(Dataset):
             image1 = image1.crop(tuple(box1))# (left, upper, right, lower) im.crop((x0, y0, x1, y1))
             image2 = image2.crop(tuple(box2))
         image1, image2 = self.transform(image1, image2)
-        visualize(image1.permute(1, 2, 0))
-        visualize(image2.permute(1, 2, 0))
+        # visualize(image1.permute(1, 2, 0))
+        # visualize(image2.permute(1, 2, 0))
         return image1, image2
 
     def __len__(self) -> int:
@@ -176,7 +186,7 @@ def main():
     # generate_barlow_twin_annotations(img_path, meta_path, pair_meta_path, frame_dist)
     # debug_barlow_twin_annotations(pair_meta_path, img_path)
     # save_bounding_boxes_for_barlow_twins(pair_meta_path)
-    # refine_barlow_pairs_boxes(pair_meta_path)
+    refine_barlow_pairs_boxes(pair_meta_path)
 
 
 if __name__ == '__main__':
