@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
 from PIL import Image
 
+
 def generate_barlow_twin_annotations(img_path, meta_path, out_path, frame_dist):
     f = open(meta_path, )
     data = json.load(f)
@@ -50,12 +51,9 @@ def generate_barlow_twin_annotations(img_path, meta_path, out_path, frame_dist):
     print(f'Saving pairs as {out_path}barlow_twins_pairs.txt')
     '''Total Time : 49643.86153244972 seconds ~ 13.78h
        Saving pairs as /nfs/data3/koner/data/youtubeVOS/train/barlow_twins_pairs.txt'''
-    with open(f'{out_path}barlow_twins_pairs_test.txt', 'w') as fp:
+    with open(f'{out_path}barlow_twins_pairs.txt', 'w') as fp:
         fp.write('\n'.join('%s %s' % x for x in frame_pairs))
 
-def visualize(img, cmap='binary'):
-    plt.imshow(img, cmap=cmap)
-    plt.show(block=True)
 
 def debug_barlow_twin_annotations(pair_meta_path, img_path):
     start_time = time.time()
@@ -75,17 +73,69 @@ def debug_barlow_twin_annotations(pair_meta_path, img_path):
         time.sleep(1)
 
 
+def save_bounding_boxes_for_barlow_twins(path):
+    start_time = time.time()
+    bboxes_frame = {}
+    with open(f'{path}detectron2-annotations-train-balanced.json') as json_file:
+        detectron_data = json.load(json_file)
+    length = len(detectron_data['annos'])
+    for i, frame in enumerate(detectron_data['annos']):
+        frame_key = frame['video_id'] + '_' + frame['frame_id']
+        bboxes_anno = {}
+        for anno in frame['annotations']:
+            anno_key = str(anno['category_id'])+'_'+anno['object_id']
+            bboxes_anno[anno_key] = anno['bbox']
+        bboxes_frame[frame_key] = bboxes_anno
+        print(f'{i + 1}/{length} : {(time.time() - start_time)} seconds')
+
+    print(f'Total Time : {(time.time() - start_time)} seconds')
+    print(f'Saving bboxes as {path}/barlow_twins_bboxes.json')
+    with open(f'{path}/barlow_twins_bboxes.json', 'w') as outfile:
+        json.dump(bboxes_frame, outfile)
+
+
+def refine_barlow_pairs_boxes(path):
+    # remove frame pair with empty bboxes
+    start_time = time.time()
+    with open(f'{path}barlow_twins_bboxes.json') as json_file:
+        detectron_data = json.load(json_file)
+    empty_frames = []
+    for key, value in detectron_data.items():
+        if not value:
+            empty_frames.append(key.replace('_', '/'))
+
+    file = open(f'{path}barlow_twins_pairs.txt', 'r')
+    pairs = [line for line in file]
+    length = len(pairs)
+    for i, pair in enumerate(pairs):
+        for empty_frame in empty_frames:
+            if empty_frame in pair:
+                pairs.remove(pair)
+                break
+        print(f'{i + 1}/{length} : {(time.time() - start_time)} seconds')
+    print(f'Total Time : {(time.time() - start_time)} seconds')
+    print(f'Saving pairs as {path}barlow_twins_pairs_refined.txt')
+    with open(f'{path}barlow_twins_pairs_refined.txt', 'w') as fp:
+        for row in pairs:
+            fp.write(str(row))
+
+
+def visualize(img, cmap='binary'):
+    plt.imshow(img, cmap=cmap)
+    plt.show(block=True)
+
+
 class YvosDateset(Dataset):
-    def __init__(self, pair_meta_path, img_path, transform, crop=False, meta_path=None):
+    def __init__(self, meta_path, img_path, transform, crop=False):
         super().__init__()
         self.crop = crop
-        if self.crop:
-            f = open(meta_path, )
-            self.meta = json.load(f)
+        if crop:
+            with open(f'{meta_path}barlow_twins_bboxes.json') as json_file:
+                self.bboxes_data = json.load(json_file)
+        file = open(f'{meta_path}barlow_twins_pairs_refined.txt', 'r')
         self.transform = transform
         self.img_path = img_path
         start_time = time.time()
-        file = open(f'{pair_meta_path}barlow_twins_pairs_test.txt', 'r')
         self.pairs = []
         for line in file:
             frames = line.split(' ')
@@ -94,16 +144,24 @@ class YvosDateset(Dataset):
 
     def __getitem__(self, index: int):
         pair = self.pairs[index]
-        image = Image.open(os.path.join(self.img_path, pair[0]))
+        image1 = Image.open(os.path.join(self.img_path, pair[0]))
         image2 = Image.open(os.path.join(self.img_path, pair[1].rstrip()))
-        image = image.convert('RGB')
+        image1 = image1.convert('RGB')
         image2 = image2.convert('RGB')
-        # visualize(image)
-        # visualize(image2)
-        image, image2 = self.transform(image, image2)
-        # visualize(image.permute(1, 2, 0))
-        # visualize(image2.permute(1, 2, 0))
-        return image, image2
+        visualize(image1)
+        visualize(image2)
+        if self.crop:
+            box1 = self.bboxes_data[pair[0].replace('/', '_').split('.')[0]]
+            box2 = self.bboxes_data[pair[1].rstrip().replace('/', '_').split('.')[0]]
+            bbox_indx = random.choice(list(set(list(box1.keys())) & set(list(box2.keys()))))
+            box1 = box1[bbox_indx] #xyxy format
+            box2 = box2[bbox_indx]
+            image1 = image1.crop(tuple(box1))# (left, upper, right, lower) im.crop((x0, y0, x1, y1))
+            image2 = image2.crop(tuple(box2))
+        image1, image2 = self.transform(image1, image2)
+        visualize(image1.permute(1, 2, 0))
+        visualize(image2.permute(1, 2, 0))
+        return image1, image2
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -115,8 +173,10 @@ def main():
     pair_meta_path = f'{root}/youtubeVOS/train/'
     meta_path = f'{root}/youtubeVOS/train/train-train-meta-balanced.json'
     frame_dist = 5
-    # generate_barlow_twin_annotations(img_path, meta_path, detectron2_annos_path, frame_dist)
-    debug_barlow_twin_annotations(pair_meta_path, img_path)
+    # generate_barlow_twin_annotations(img_path, meta_path, pair_meta_path, frame_dist)
+    # debug_barlow_twin_annotations(pair_meta_path, img_path)
+    # save_bounding_boxes_for_barlow_twins(pair_meta_path)
+    # refine_barlow_pairs_boxes(pair_meta_path)
 
 
 if __name__ == '__main__':
