@@ -23,7 +23,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
-from yvos_dataset import YvosDateset
+from yvos_dataset_2 import YvosDateset
 import torchvision.models as models
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
@@ -54,6 +54,7 @@ parser.add_argument('--crop', action='store_true', help='train yvos dataset')
 parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
 parser.add_argument('--imgnet_pretrained', action='store_true')
 parser.add_argument('--torchvision_to_d2', action='store_true')
+parser.add_argument('--increase_small_area', action='store_true')
 parser.add_argument("--cuda_visible_device", nargs="*", type=int, default=None,
                     help="list of cuda visible devices")
 
@@ -108,8 +109,8 @@ def main():
         args.rank = 0
         args.dist_url = 'tcp://localhost:58472'
         args.world_size = args.ngpus_per_node
-    torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
-
+    # torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
+    main_worker(0, args)
 
 def main_worker(gpu, args):
     args.rank += gpu
@@ -163,7 +164,7 @@ def main_worker(gpu, args):
     if args.yvos:
         img_path = f'{args.yvos_root}/youtubeVOS/train/JPEGImages/'
         meta_path = f'{args.yvos_root}/youtubeVOS/train/'
-        dataset = YvosDateset(meta_path, img_path, Transform(args.crop), args.crop)
+        dataset = YvosDateset(meta_path, img_path, Transform(args.crop), args.crop, args.increase_small_area)
     else:
         dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
     sampler = torch.utils.data.distributed.DistributedSampler(dataset)
