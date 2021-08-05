@@ -7,7 +7,7 @@ import numpy as np
 import sys
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
-from PIL import Image
+from PIL import Image, ImageFilter
 import cv2
 
 
@@ -166,30 +166,101 @@ class YvosDateset(Dataset):
     def is_small_object(self, box):
         return ((box[2] - box[0]) * (box[3] - box[1])) < 1024
 
-    def increase_area(self, box, img_size):
-        if self.is_small_object(box):
-            dist_x = (box[2] - box[0]) / 2
-            dist_y = (box[3] - box[1]) / 2
+    def add_gaussian_noise(self, size):
+        col, row = size
+        # Gaussian distribution parameters
+        mean = 0
+        var = 1
+        sigma = var ** 0.5
+        gaussImage = np.random.normal(mean, sigma, (row, col)).astype('float32')[..., None]
+        gaussImage = (gaussImage - np.min(gaussImage)) / (np.max(gaussImage) - np.min(gaussImage))
+        gaussImage = gaussImage * 255
+        gaussImage = gaussImage.astype('uint8')
+        gaussImage = np.concatenate((gaussImage, gaussImage, gaussImage), axis=2)
+        return gaussImage
 
-            if box[0] - dist_x < 0:
-                box[0] = 0
-                box[2] = dist_x * 4
-            elif box[2] + dist_x > img_size[0]:
-                box[2] = img_size[0]
-                box[0] = img_size[0] - 4 * dist_x
-            else:
-                box[0] = box[0] - dist_x
-                box[2] = box[2] + dist_x
+    def add_random_noise(self, size):
+        col, row = size
+        gaussImage = np.random.random((row, col))
+        gaussImage = (gaussImage * 255 / np.max(gaussImage)).astype('uint8')[..., None]
+        gaussImage = np.concatenate((gaussImage, gaussImage, gaussImage), axis=2)
+        return gaussImage
 
-            if box[1] - dist_y < 0:
-                box[1] = 0
-                box[3] = dist_y * 4
-            elif box[3] + dist_y > img_size[1]:
-                box[3] = img_size[1]
-                box[1] = img_size[1] - 4 * dist_y
-            else:
-                box[2] = box[2] - dist_y
-                box[3]  = box[3] + dist_y
+    def increase_area(self, box, img_size, scale=2):
+        dist_x = ((box[2] - box[0]) * (scale - 1)) / 2
+        dist_y = ((box[3] - box[1]) * (scale - 1)) / 2
+
+        if box[0] - dist_x < 0:
+            box[0] = 0
+            box[2] = dist_x * 4
+        elif box[2] + dist_x > img_size[0]:
+            box[2] = img_size[0]
+            box[0] = img_size[0] - 4 * dist_x
+        else:
+            box[0] = box[0] - dist_x
+            box[2] = box[2] + dist_x
+
+        if box[1] - dist_x < 0:
+            box[1] = 0
+            box[3] = dist_y * 4
+        elif box[3] + dist_y > img_size[1]:
+            box[3] = img_size[1]
+            box[1] = img_size[1] - 4 * dist_y
+        else:
+            box[2] = box[2] - dist_y
+            box[3] = box[3] + dist_y
+        return [int(b) for b in box]
+
+    def union_of_boxes(self, boxes, img_size):
+        x_min = min([x[0] for x in boxes])
+        x_max = max([x[2] for x in boxes])
+        y_min = min([x[1] for x in boxes])
+        y_max = max([x[3] for x in boxes])
+        box = [x_min, y_min, x_max, y_max]
+        if (x_max - x_min) * (y_max - y_min) < 0.5 * (img_size[0] * img_size[1]):
+            box = self.increase_area(box, img_size, 1.5)
+        return box
+
+    def center_bbox(self, box, img_size):
+        img_center = (img_size[0]/2, img_size[1]/2)
+        box_center = ((box[2]+box[0])/2, (box[3]+box[1])/2)
+        x_dist = img_center[0] - box_center[0]
+        y_dist = img_center[1] - box_center[1]
+
+        box[0] += x_dist
+        box[2] += x_dist
+        box[1] += y_dist
+        box[3] += y_dist
+
+        return [int(b) for b in box]
+
+    def cut_image(self, image, boxes):
+        '''
+            type: blur/ noise
+        '''
+        image_size = image.size
+        boxes = [box for box in boxes if not self.is_small_object(box)]
+        start_time = time.time()
+        rand = random.random()
+        if rand <= 0.33:
+            gaussImage = image.filter(ImageFilter.GaussianBlur(np.random.randint(20,50)))
+            gaussImage = np.array(gaussImage)
+        elif 0.33 < rand <= 0.66:
+            gaussImage = self.add_gaussian_noise(image.size)
+        else:
+            gaussImage = self.add_random_noise(image.size)
+
+        print(f'gaussImage Time : {(time.time() - start_time)} seconds')
+        start_time = time.time()
+        box = self.union_of_boxes(boxes, image_size)
+        image = image.crop(tuple(box))
+        image = np.array(image)
+        box = self.center_bbox(box, image_size)
+        gaussImage[box[1]:box[3], box[0]:box[2]] = image#[box[1]:box[3], box[0]:box[2]]
+        print(f'boxes Time : {(time.time() - start_time)} seconds')
+        visualize(gaussImage)
+        gaussImage = Image.fromarray(gaussImage)
+        return gaussImage
 
     def __getitem__(self, index: int):
         pair = self.pairs[index]
@@ -199,21 +270,17 @@ class YvosDateset(Dataset):
         image2 = image2.convert('RGB')
         # visualize(image1)
         # visualize(image2)
-        if self.crop:
-            box1 = self.bboxes_data[pair[0].replace('/', '_').split('.')[0]]
-            box2 = self.bboxes_data[pair[1].rstrip().replace('/', '_').split('.')[0]]
-            bbox_indx = random.choice(list(set(list(box1.keys())) & set(list(box2.keys()))))
-            box1 = box1[bbox_indx] #xyxy format
-            box2 = box2[bbox_indx]
-            if self.increase_small_area:
-                self.increase_area(box1, image1.size)
-                self.increase_area(box2, image2.size)
-
-            image1 = image1.crop(tuple(box1))# (left, upper, right, lower) im.crop((x0, y0, x1, y1))
-            image2 = image2.crop(tuple(box2))
+        box2 = self.bboxes_data[pair[1].rstrip().replace('/', '_').split('.')[0]]
+        start_time = time.time()
+        image2 = self.cut_image(image2, box2.values())
+        print(f'cut_image Time : {(time.time() - start_time)} seconds')
+        visualize(image1)
+        visualize(image2)
+        start_time = time.time()
         image1, image2 = self.transform(image1, image2)
-        # visualize(image1.permute(1, 2, 0))
-        # visualize(image2.permute(1, 2, 0))
+        print(f'transform Time : {(time.time() - start_time)} seconds')
+        visualize(image1.permute(1, 2, 0))
+        visualize(image2.permute(1, 2, 0))
         return image1, image2
 
     def __len__(self) -> int:

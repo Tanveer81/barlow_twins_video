@@ -23,7 +23,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
-from yvos_dataset_2 import YvosDateset
+from yvos_dataset_4 import YvosDateset
 import torchvision.models as models
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
@@ -371,8 +371,8 @@ class Transform:
                 p=0.8
             ),
             transforms.RandomGrayscale(p=0.2),
-            GaussianBlur(p=0.1),
-            Solarization(p=0.2),
+            # GaussianBlur(p=0.1),
+            # Solarization(p=0.2),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])

@@ -191,6 +191,7 @@ class YvosDateset(Dataset):
         start_time = time.time()
         if type=='blur':
             gaussImage = image.filter(ImageFilter.GaussianBlur(50))
+            gaussImage = np.array(gaussImage)
         else:
             gaussImage = self.add_random_noise(image.size)
         image = np.array(image)
