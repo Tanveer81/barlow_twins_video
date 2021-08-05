@@ -244,8 +244,8 @@ class YvosDateset(Dataset):
         image_size = image.size
         boxes = [box for box in boxes if not self.is_small_object(box)]
         union_box = self.union_of_boxes(boxes, image_size)
-        rand = random.random()
-        if self.box_area(union_box) < 0.5 and rand > 0.66:
+        rand = .35#random.random()
+        if self.box_area(union_box) < 0.5 * (image_size[0] * image_size[1]) and rand > 0.66:
             print('union_box_center_crop')
             image = image.crop(tuple(union_box))
             return image
