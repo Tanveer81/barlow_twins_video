@@ -47,10 +47,13 @@ parser.add_argument('--print-freq', default=100, type=int, metavar='N',
                     help='print frequency')
 parser.add_argument('--checkpoint-dir', default='./checkpoint/lincls/', type=Path,
                     metavar='DIR', help='path to checkpoint directory')
-
+parser.add_argument("--cuda_visible_device", nargs="*", type=int, default=None,
+                    help="list of cuda visible devices")
 
 def main():
     args = parser.parse_args()
+    if args.cuda_visible_device is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, args.cuda_visible_device))
     if args.train_percent in {1, 10}:
         args.train_files = urllib.request.urlopen(f'https://raw.githubusercontent.com/google-research/simclr/master/imagenet_subsets/{args.train_percent}percent.txt').readlines()
     args.ngpus_per_node = torch.cuda.device_count()

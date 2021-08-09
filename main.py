@@ -103,14 +103,14 @@ def main():
         host_name = 'localhost'#stdout.decode().splitlines()[0]
         args.rank = int(os.getenv('SLURM_NODEID')) * args.ngpus_per_node
         args.world_size = int(os.getenv('SLURM_NNODES')) * args.ngpus_per_node
-        args.dist_url = f'tcp://{host_name}:58472'
+        args.dist_url = f'tcp://{host_name}:58473'
     else:
         # single-node distributed training
         args.rank = 0
-        args.dist_url = 'tcp://localhost:58472'
+        args.dist_url = 'tcp://localhost:58473'
         args.world_size = args.ngpus_per_node
-    # torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
-    main_worker(0, args)
+    torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
+    # main_worker(0, args)
 
 def main_worker(gpu, args):
     args.rank += gpu
@@ -152,6 +152,7 @@ def main_worker(gpu, args):
                           map_location='cpu')
 
         if args.torchvision_to_d2:
+            print("torchvision_to_d2(ckpt, args)")
             torchvision_to_d2(ckpt, args)
             return
 
@@ -201,7 +202,8 @@ def main_worker(gpu, args):
             # save checkpoint
             state = dict(epoch=epoch + 1, model=model.state_dict(),
                          optimizer=optimizer.state_dict())
-            torch.save(state, args.checkpoint_dir / 'checkpoint.pth')
+            torch.save(state, args.checkpoint_dir / f'checkpoint.pth')
+            torch.save(state, args.checkpoint_dir / f'checkpoint_{epoch}.pth')
     if args.rank == 0:
         # save final model
         torch.save(model.module.backbone.state_dict(),
