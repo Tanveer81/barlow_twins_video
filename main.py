@@ -23,7 +23,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
-from yvos_dataset_4 import YvosDateset
+from yvos_dataset_only_blur import YvosDateset
 import torchvision.models as models
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
@@ -103,11 +103,11 @@ def main():
         host_name = 'localhost'#stdout.decode().splitlines()[0]
         args.rank = int(os.getenv('SLURM_NODEID')) * args.ngpus_per_node
         args.world_size = int(os.getenv('SLURM_NNODES')) * args.ngpus_per_node
-        args.dist_url = f'tcp://{host_name}:58473'
+        args.dist_url = f'tcp://{host_name}:58472'
     else:
         # single-node distributed training
         args.rank = 0
-        args.dist_url = 'tcp://localhost:58473'
+        args.dist_url = 'tcp://localhost:58472'
         args.world_size = args.ngpus_per_node
     torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
     # main_worker(0, args)
