@@ -23,7 +23,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
-from yvos_dataset_only_blur import YvosDateset
+from yvos_dataset_only_zero import YvosDateset
 import torchvision.models as models
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
@@ -55,6 +55,7 @@ parser.add_argument('--yvos_root', default='/nfs/data3/koner/data', type=str)
 parser.add_argument('--imgnet_pretrained', action='store_true')
 parser.add_argument('--torchvision_to_d2', action='store_true')
 parser.add_argument('--increase_small_area', action='store_true')
+parser.add_argument('--freeze', action='store_true')
 parser.add_argument("--cuda_visible_device", nargs="*", type=int, default=None,
                     help="list of cuda visible devices")
 
@@ -109,8 +110,8 @@ def main():
         args.rank = 0
         args.dist_url = 'tcp://localhost:58472'
         args.world_size = args.ngpus_per_node
-    torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
-    # main_worker(0, args)
+    # torch.multiprocessing.spawn(main_worker, (args,), args.ngpus_per_node)
+    main_worker(0, args)
 
 def main_worker(gpu, args):
     args.rank += gpu
@@ -241,15 +242,32 @@ def off_diagonal(x):
     assert n == m
     return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
+
 def visualize(img, cmap='binary'):
     plt.imshow(img, cmap=cmap)
     plt.show(block=True)
+
+
+def freeze_bn(module):
+    if hasattr(module, 'weight'):
+        module.weight.requires_grad_(False)
+    if hasattr(module, 'bias'):
+        module.bias.requires_grad_(False)
+    module.eval()
+
+
+def freeze_layer(module):
+    for param in module.parameters():
+        param.requires_grad = False
+
 
 class BarlowTwins(nn.Module):
     def __init__(self, args, load_pretrained_model):
         super().__init__()
         self.args = args
         self.backbone = torchvision.models.resnet50(pretrained=load_pretrained_model, zero_init_residual=True)
+        if args.freeze:
+            self.freeze()
         self.backbone.fc = nn.Identity()
 
         # projector
@@ -265,8 +283,17 @@ class BarlowTwins(nn.Module):
         # normalization layer for the representations z1 and z2
         self.bn = nn.BatchNorm1d(sizes[-1], affine=False)
 
+
+    def freeze(self):
+        # freeze first conv layer and first residual block
+        freeze_bn(self.backbone.bn1)
+        freeze_layer(self.backbone.conv1)
+        for module in (self.backbone.layer1.modules()):
+            freeze_bn(module) if isinstance(module, nn.BatchNorm2d) else freeze_layer(module)
+
     def forward(self, y1, y2):
-        z1 = self.projector(self.backbone(y1))
+        x1 = self.backbone(y1)
+        z1 = self.projector(x1)
         z2 = self.projector(self.backbone(y2))
 
         # empirical cross-correlation matrix
@@ -389,6 +416,7 @@ class Transform:
         y1 = self.transform(x1)
         y2 = self.transform_prime(x2)
         return y1, y2
+
 
 if __name__ == '__main__':
     main()
